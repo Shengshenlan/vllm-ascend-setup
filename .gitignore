@@ -1,0 +1,13 @@
+# Log files
+log/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files
+*.swp
+*.swo
+*~

@@ -1,0 +1,23 @@
+{
+  "skill_name": "vllm-ascend-setup",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我搭建一个 vllm-ascend 开发环境",
+      "expected_output": "按照步骤检查 NPU 驱动、选择 Python 解释器、安装 vLLM 和 vLLM Ascend，并运行测试",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我想在昇腾 NPU 上安装 vllm",
+      "expected_output": "使用 vllm-ascend 环境搭建流程",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "配置 vllm-ascend 开发环境",
+      "expected_output": "完整的环境配置步骤",
+      "files": []
+    }
+  ]
+}
