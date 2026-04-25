@@ -1,60 +1,113 @@
-#!/bin/bash
-# 配置 vllm-ascend 的 LD_LIBRARY_PATH
+#!/usr/bin/env bash
+# Configure vllm-ascend LD_LIBRARY_PATH.
 
-VLLM_ASCEND_DIR="${1:-.}"
-PERSIST="${2:-false}"
+set -euo pipefail
+
+VLLM_ASCEND_DIR="."
+PERSIST="false"
+RC_FILE=""
+PRINT_EXPORT="false"
+
+usage() {
+    echo "Usage: $0 [vllm-ascend-dir] [--print-export] [--persist|persist] [--rc-file PATH]"
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --persist|persist|true)
+            PERSIST="true"
+            shift
+            ;;
+        --print-export)
+            PRINT_EXPORT="true"
+            shift
+            ;;
+        --rc-file)
+            RC_FILE="${2:-}"
+            if [ -z "${RC_FILE}" ]; then
+                echo "Missing value for --rc-file" >&2
+                exit 2
+            fi
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            VLLM_ASCEND_DIR="$1"
+            shift
+            ;;
+    esac
+done
+
+if [ ! -d "${VLLM_ASCEND_DIR}" ]; then
+    echo "Directory not found: ${VLLM_ASCEND_DIR}" >&2
+    exit 1
+fi
 
 cd "${VLLM_ASCEND_DIR}"
-VLLM_ASCEND_PATH=$(pwd)
+VLLM_ASCEND_PATH="$(pwd -P)"
 
-echo "=========================================="
-echo "配置 LD_LIBRARY_PATH"
-echo "vllm-ascend 路径: ${VLLM_ASCEND_PATH}"
-echo "=========================================="
+if [ ! -d "${VLLM_ASCEND_PATH}/vllm_ascend" ]; then
+    echo "Expected vllm_ascend/ under ${VLLM_ASCEND_PATH}" >&2
+    exit 1
+fi
 
-# 设置环境变量
-export LD_LIBRARY_PATH=${VLLM_ASCEND_PATH}/vllm_ascend:${VLLM_ASCEND_PATH}/vllm_ascend/lib64:${LD_LIBRARY_PATH}
+LIB_PATH="${VLLM_ASCEND_PATH}/vllm_ascend:${VLLM_ASCEND_PATH}/vllm_ascend/lib64"
+EXPORT_CMD="export LD_LIBRARY_PATH=${LIB_PATH}:\${LD_LIBRARY_PATH:-}"
 
-echo ""
-echo "✅ LD_LIBRARY_PATH 已设置"
-echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+if [ "${PRINT_EXPORT}" = "true" ]; then
+    echo "${EXPORT_CMD}"
+    exit 0
+fi
 
-# 如果需要持久化
-if [ "${PERSIST}" = "true" ] || [ "${PERSIST}" = "persist" ]; then
-    SHELL_RC=""
-    if [ -f ~/.bashrc ]; then
-        SHELL_RC=~/.bashrc
-    elif [ -f ~/.zshrc ]; then
-        SHELL_RC=~/.zshrc
-    fi
+export LD_LIBRARY_PATH="${LIB_PATH}:${LD_LIBRARY_PATH:-}"
 
-    if [ -n "${SHELL_RC}" ]; then
-        # 检查是否已经添加过
-        if ! grep -q "vllm-ascend.*LD_LIBRARY_PATH" "${SHELL_RC}"; then
-            echo "" >> "${SHELL_RC}"
-            echo "# vllm-ascend library path" >> "${SHELL_RC}"
-            echo "export LD_LIBRARY_PATH=${VLLM_ASCEND_PATH}/vllm_ascend:${VLLM_ASCEND_PATH}/vllm_ascend/lib64:\${LD_LIBRARY_PATH}" >> "${SHELL_RC}"
-            echo ""
-            echo "✅ 已添加到 ${SHELL_RC}"
-            echo "   请运行 'source ${SHELL_RC}' 使配置立即生效"
-        else
-            echo ""
-            echo "ℹ️ ${SHELL_RC} 中已存在 vllm-ascend 配置"
-        fi
+echo "vllm-ascend path: ${VLLM_ASCEND_PATH}"
+echo "LD_LIBRARY_PATH for this process:"
+echo "${LD_LIBRARY_PATH}"
+echo
+echo "Run this in your current shell if you executed the script instead of sourcing it:"
+echo "${EXPORT_CMD}"
+
+if [ "${PERSIST}" != "true" ]; then
+    exit 0
+fi
+
+if [ -z "${RC_FILE}" ]; then
+    if [ -f "${HOME}/.bashrc" ]; then
+        RC_FILE="${HOME}/.bashrc"
+    elif [ -f "${HOME}/.zshrc" ]; then
+        RC_FILE="${HOME}/.zshrc"
     else
-        echo ""
-        echo "⚠️ 未找到 shell 配置文件 (~/.bashrc 或 ~/.zshrc)"
+        echo "No shell rc file found. Pass --rc-file PATH to persist manually." >&2
+        exit 1
     fi
 fi
 
-echo ""
-echo "=========================================="
-echo "使用提示："
-echo "  当前终端会话已生效"
-echo "  如需永久生效，请再次运行: ./setup_ld_library_path.sh <path> persist"
-echo "=========================================="
+MARKER_BEGIN="# >>> vllm-ascend LD_LIBRARY_PATH >>>"
+MARKER_END="# <<< vllm-ascend LD_LIBRARY_PATH <<<"
+TMP_FILE="$(mktemp)"
 
-# 输出生效的命令供用户 eval
-echo ""
-echo "复制以下命令使配置在当前 shell 生效："
-echo "export LD_LIBRARY_PATH=${VLLM_ASCEND_PATH}/vllm_ascend:${VLLM_ASCEND_PATH}/vllm_ascend/lib64:\${LD_LIBRARY_PATH}"
+if [ -f "${RC_FILE}" ]; then
+    awk -v begin="${MARKER_BEGIN}" -v end="${MARKER_END}" '
+        $0 == begin {skip = 1; next}
+        $0 == end {skip = 0; next}
+        skip != 1 {print}
+    ' "${RC_FILE}" > "${TMP_FILE}"
+else
+    : > "${TMP_FILE}"
+fi
+
+{
+    cat "${TMP_FILE}"
+    echo
+    echo "${MARKER_BEGIN}"
+    echo "${EXPORT_CMD}"
+    echo "${MARKER_END}"
+} > "${RC_FILE}"
+
+rm -f "${TMP_FILE}"
+echo
+echo "Persisted LD_LIBRARY_PATH block to ${RC_FILE}"
